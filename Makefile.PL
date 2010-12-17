@@ -6,7 +6,7 @@ WriteMakefile
           'VERSION_FROM' => 'lib/IO/Async/Loop/POE.pm',
           'PREREQ_PM' => {
                            'IO::Async' => '0.24',
-                           'IO::Async::LoopTests' => '0.24',
+                           'IO::Async::LoopTests' => '0.32',
                            'POE' => '1.293',
                            'Test::More' => 0
                          },

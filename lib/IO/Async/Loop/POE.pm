@@ -8,7 +8,7 @@ package IO::Async::Loop::POE;
 use strict;
 use warnings;
 
-our $VERSION = '0.01';
+our $VERSION = '0.02';
 use constant API_VERSION => '0.24';
 
 use base qw( IO::Async::Loop );
@@ -94,8 +94,6 @@ sub new
          },
       }
    );
-
-   POE::Kernel->run_one_timeslice;
 
    return $self;
 }

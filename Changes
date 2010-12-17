@@ -1,4 +1,9 @@
 Revision history for IO-Async-Loop-POE
 
+0.02    CHANGES:
+         * IO::Async::LoopTests 0.32 no longer requires exact timing
+           immediately after constructor, so no need for ->run_one_timeslice
+           workaround
+
 0.01    First version, released on an unsuspecting world.
 
