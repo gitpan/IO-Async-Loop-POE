@@ -16,10 +16,10 @@ name: IO-Async-Loop-POE
 provides:
   IO::Async::Loop::POE:
     file: lib/IO/Async/Loop/POE.pm
-    version: 0.02
+    version: 0.03
 requires:
   IO::Async: 0.24
   POE: 1.293
 resources:
   license: http://dev.perl.org/licenses/
-version: 0.02
+version: 0.03

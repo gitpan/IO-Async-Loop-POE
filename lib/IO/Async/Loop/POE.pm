@@ -8,8 +8,8 @@ package IO::Async::Loop::POE;
 use strict;
 use warnings;
 
-our $VERSION = '0.02';
-use constant API_VERSION => '0.24';
+our $VERSION = '0.03';
+use constant API_VERSION => '0.33';
 
 use base qw( IO::Async::Loop );
 
@@ -72,25 +72,69 @@ sub new
 
    my $self = $class->SUPER::__new( %args );
 
+   my $kernelref = \($self->{kernel} = undef);
+
    $self->{session} = POE::Session->create(
       inline_states => {
          _start => sub {
             $_[KERNEL]->alias_set( "IO::Async" );
+            $$kernelref = $_[KERNEL];
          },
+
          invoke => sub {
             # CODEref is always in the last position, but what that is varies
             # given the different events use different initial args
             $_[-1]->();
          },
+
+         select_read => sub {
+            $_[KERNEL]->select_read( $_[ARG0], invoke => $_[ARG1] );
+         },
+         unselect_read => sub {
+            $_[KERNEL]->select_read( $_[ARG0] );
+         },
+         select_write => sub {
+            $_[KERNEL]->select_write( $_[ARG0], invoke => $_[ARG1] );
+         },
+         unselect_write => sub {
+            $_[KERNEL]->select_write( $_[ARG0] );
+         },
+
+         alarm_set => sub {
+            $_[KERNEL]->alarm_set( invoke => $_[ARG0], $_[ARG1] );
+         },
+         alarm_reset => sub {
+            # TODO: POE docs claim we get an ARRAY ref back here, but testing
+            # suggests it's just a list
+            my ( undef, undef, $data ) = $_[KERNEL]->alarm_remove( $_[ARG0] );
+            $_[KERNEL]->alarm_set( invoke => $_[ARG1], $data );
+         },
+         delay_set => sub {
+            $_[KERNEL]->delay_set( invoke => $_[ARG0], $_[ARG1] );
+         },
+         alarm_remove => sub {
+            $_[KERNEL]->alarm_remove( $_[ARG0] );
+         },
+
+         sig => sub {
+            $_[KERNEL]->sig( $_[ARG0], ( $_[ARG0] eq "CHLD" ) ? "invoke_child" : "invoke_signal", $_[ARG1] );
+         },
+         unsig => sub {
+            $_[KERNEL]->sig( $_[ARG0] );
+         },
          invoke_signal => sub {
             $_[-1]->();
             $_[KERNEL]->sig_handled;
          },
+
+         sig_child => sub {
+            $_[KERNEL]->sig_child( $_[ARG0], invoke_child => $_[ARG1] );
+         },
+         unsig_child => sub {
+            $_[KERNEL]->sig_child( $_[ARG0] );
+         },
          invoke_child => sub {
             $_[-1]->( $_[ARG1], $_[ARG2] ); # $pid, $dollarq
-         },
-         perform => sub {
-            $_[ARG0]->();
          },
       }
    );
@@ -98,10 +142,10 @@ sub new
    return $self;
 }
 
-sub _perform
+sub _call
 {
    my $self = shift;
-   POE::Kernel->call( $self->{session}, perform => @_ );
+   $self->{kernel}->call( $self->{session}, @_ );
 }
 
 sub loop_once
@@ -110,18 +154,18 @@ sub loop_once
    my ( $timeout ) = @_;
 
    if( defined $timeout and $timeout == 0 ) {
-      POE::Kernel->run_one_timeslice;
+      $self->{kernel}->run_one_timeslice;
       return;
    }
 
    my $timer_id;
    if( defined $timeout ) {
-      $timer_id = $self->_perform(sub { POE::Kernel->delay_set( invoke => $timeout, sub { } ) });
+      $timer_id = $self->_call( delay_set => $timeout, sub { } );
    }
 
-   POE::Kernel->run_one_timeslice;
+   $self->{kernel}->run_one_timeslice;
 
-   $self->_perform(sub { POE::Kernel->alarm_remove( $timer_id ) });
+   $self->_call( alarm_remove => $timer_id );
 }
 
 sub watch_io
@@ -132,11 +176,11 @@ sub watch_io
    my $handle = $params{handle} or die "Need a handle";
 
    if( my $on_read_ready = $params{on_read_ready} ) {
-      $self->_perform(sub{ POE::Kernel->select_read( $handle, invoke => $on_read_ready ) });
+      $self->_call( select_read => $handle, $on_read_ready );
    }
 
    if( my $on_write_ready = $params{on_write_ready} ) {
-      $self->_perform(sub{ POE::Kernel->select_write( $handle, invoke => $on_write_ready ) });
+      $self->_call( select_write => $handle, $on_write_ready );
    }
 }
 
@@ -148,11 +192,11 @@ sub unwatch_io
    my $handle = $params{handle} or die "Need a handle";
 
    if( my $on_read_ready = $params{on_read_ready} ) {
-      $self->_perform(sub{ POE::Kernel->select_read( $handle ) });
+      $self->_call( unselect_read => $handle );
    }
 
    if( my $on_write_ready = $params{on_write_ready} ) {
-      $self->_perform(sub{ POE::Kernel->select_write( $handle ) });
+      $self->_call( unselect_write => $handle );
    }
 }
 
@@ -165,7 +209,7 @@ sub enqueue_timer
 
    my $code = $params{code} or croak "Expected 'code' as CODE ref";
 
-   return $self->_perform(sub { POE::Kernel->alarm_set( invoke => $time, $code ) });
+   return $self->_call( alarm_set => $time, $code );
 }
 
 sub cancel_timer
@@ -173,7 +217,7 @@ sub cancel_timer
    my $self = shift;
    my ( $id ) = @_;
 
-   $self->_perform(sub { POE::Kernel->alarm_remove( $id ) });
+   $self->_call( alarm_remove => $id );
 }
 
 sub requeue_timer
@@ -183,12 +227,7 @@ sub requeue_timer
 
    my $time = $self->_build_time( %params );
 
-   return $self->_perform(sub {
-         # TODO: POE docs claim we get an ARRAY ref back here, but testing
-         # suggests it's just a list
-         my ( undef, undef, $data ) = POE::Kernel->alarm_remove( $id );
-         return POE::Kernel->alarm_set( invoke => $time, $data );
-   });
+   return $self->_call( alarm_reset => $id, $time );
 }
 
 sub watch_signal
@@ -198,7 +237,7 @@ sub watch_signal
 
    exists $SIG{$signal} or croak "Cannot watch signal '$signal' - bad signal name";
 
-   $self->_perform(sub { POE::Kernel->sig( $signal, invoke_signal => $code ) });
+   $self->_call( sig => $signal, $code );
 }
 
 sub unwatch_signal
@@ -206,7 +245,7 @@ sub unwatch_signal
    my $self = shift;
    my ( $signal ) = @_;
 
-   $self->_perform(sub { POE::Kernel->sig( $signal ) });
+   $self->_call( unsig => $signal );
 }
 
 sub watch_idle
@@ -220,7 +259,7 @@ sub watch_idle
 
    $when eq "later" or croak "Expected 'when' to be 'later'";
 
-   return $self->_perform(sub { POE::Kernel->delay_set( invoke => 0, $code ) });
+   return $self->_call( delay_set => 0, $code );
 }
 
 sub unwatch_idle
@@ -228,7 +267,7 @@ sub unwatch_idle
    my $self = shift;
    my ( $id ) = @_;
 
-   $self->_perform(sub { POE::Kernel->alarm_remove( $id ) });
+   $self->_call( alarm_remove => $id );
 }
 
 sub watch_child
@@ -236,7 +275,12 @@ sub watch_child
    my $self = shift;
    my ( $pid, $code ) = @_;
 
-   $self->_perform(sub { POE::Kernel->sig_child( $pid, invoke_child => $code ) });
+   if( $pid ) {
+      $self->_call( sig_child => $pid, $code );
+   }
+   else {
+      $self->_call( sig => "CHLD", $code );
+   }
 }
 
 sub unwatch_child
@@ -244,7 +288,12 @@ sub unwatch_child
    my $self = shift;
    my ( $pid ) = @_;
 
-   $self->_perform(sub { POE::Kernel->sig_child( $pid ) });
+   if( $pid ) {
+      $self->_call( unsig_child => $pid );
+   }
+   else {
+      $self->_call( unsig => "CHLD" );
+   }
 }
 
 # Keep perl happy; keep Britain tidy

@@ -13,4 +13,8 @@ t/03loop-signal.t
 t/04loop-idle.t
 t/05loop-child.t
 t/06loop-control.t
+t/11share-io.t
+t/12share-timer.t
+t/13share-signal.t
+t/15share-child.t
 t/99pod.t
