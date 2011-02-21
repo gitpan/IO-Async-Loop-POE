@@ -1,21 +1,21 @@
 #  You may distribute under the terms of either the GNU General Public License
 #  or the Artistic License (the same terms as Perl itself)
 #
-#  (C) Paul Evans, 2010 -- leonerd@leonerd.org.uk
+#  (C) Paul Evans, 2010-2011 -- leonerd@leonerd.org.uk
 
 package IO::Async::Loop::POE;
 
 use strict;
 use warnings;
 
-our $VERSION = '0.03';
+our $VERSION = '0.04';
 use constant API_VERSION => '0.33';
 
 use base qw( IO::Async::Loop );
 
 use Carp;
 
-use POE::Kernel;
+use POE::Kernel 1.293;
 use POE::Session;
 
 # Placate POE warning that we didn't call this
@@ -104,10 +104,11 @@ sub new
             $_[KERNEL]->alarm_set( invoke => $_[ARG0], $_[ARG1] );
          },
          alarm_reset => sub {
-            # TODO: POE docs claim we get an ARRAY ref back here, but testing
-            # suggests it's just a list
+            # POE docs claim we get an ARRAY ref back here, but up until 1.299
+            # it returned a plain list.
             my ( undef, undef, $data ) = $_[KERNEL]->alarm_remove( $_[ARG0] );
-            $_[KERNEL]->alarm_set( invoke => $_[ARG1], $data );
+            my $code = ( ref $data eq "ARRAY" ) ? $data->[0] : $data;
+            $_[KERNEL]->alarm_set( invoke => $_[ARG1], $code );
          },
          delay_set => sub {
             $_[KERNEL]->delay_set( invoke => $_[ARG0], $_[ARG1] );
@@ -296,11 +297,10 @@ sub unwatch_child
    }
 }
 
-# Keep perl happy; keep Britain tidy
-1;
-
-__END__
-
 =head1 AUTHOR
 
 Paul Evans <leonerd@leonerd.org.uk>
+
+=cut
+
+0x55AA;

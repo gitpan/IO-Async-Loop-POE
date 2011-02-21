@@ -1,5 +1,8 @@
 Revision history for IO-Async-Loop-POE
 
+0.04    BUGFIXES:
+         * Fix timer fail bug on POE 1.299 - rt65706
+
 0.03    CHANGES:
          * Move all POE::Kernel-adjusting code into state functions to invoke
            directly, rather than building temporary closures
