@@ -1,17 +1,18 @@
 #  You may distribute under the terms of either the GNU General Public License
 #  or the Artistic License (the same terms as Perl itself)
 #
-#  (C) Paul Evans, 2010-2011 -- leonerd@leonerd.org.uk
+#  (C) Paul Evans, 2010-2012 -- leonerd@leonerd.org.uk
 
 package IO::Async::Loop::POE;
 
 use strict;
 use warnings;
 
-our $VERSION = '0.04';
-use constant API_VERSION => '0.33';
+our $VERSION = '0.05';
+use constant API_VERSION => '0.49';
 
 use base qw( IO::Async::Loop );
+IO::Async::Loop->VERSION( '0.49' );
 
 use Carp;
 
@@ -24,7 +25,7 @@ POE::Kernel->run();
 
 =head1 NAME
 
-L<IO::Async::Loop::POE> - use C<IO::Async> with C<POE>
+C<IO::Async::Loop::POE> - use C<IO::Async> with C<POE>
 
 =head1 SYNOPSIS
 
@@ -102,13 +103,6 @@ sub new
 
          alarm_set => sub {
             $_[KERNEL]->alarm_set( invoke => $_[ARG0], $_[ARG1] );
-         },
-         alarm_reset => sub {
-            # POE docs claim we get an ARRAY ref back here, but up until 1.299
-            # it returned a plain list.
-            my ( undef, undef, $data ) = $_[KERNEL]->alarm_remove( $_[ARG0] );
-            my $code = ( ref $data eq "ARRAY" ) ? $data->[0] : $data;
-            $_[KERNEL]->alarm_set( invoke => $_[ARG1], $code );
          },
          delay_set => sub {
             $_[KERNEL]->delay_set( invoke => $_[ARG0], $_[ARG1] );
@@ -201,34 +195,30 @@ sub unwatch_io
    }
 }
 
-sub enqueue_timer
+sub watch_time
 {
    my $self = shift;
    my %params = @_;
 
-   my $time = $self->_build_time( %params );
-
    my $code = $params{code} or croak "Expected 'code' as CODE ref";
 
-   return $self->_call( alarm_set => $time, $code );
+   if( defined $params{at} ) {
+      return $self->_call( alarm_set => $params{at}, $code );
+   }
+   elsif( defined $params{after} ) {
+      return $self->_call( delay_set => $params{after}, $code );
+   }
+   else {
+      croak "Expected either 'at' or 'after'";
+   }
 }
 
-sub cancel_timer
+sub unwatch_time
 {
    my $self = shift;
    my ( $id ) = @_;
 
    $self->_call( alarm_remove => $id );
-}
-
-sub requeue_timer
-{
-   my $self = shift;
-   my ( $id, %params ) = @_;
-
-   my $time = $self->_build_time( %params );
-
-   return $self->_call( alarm_reset => $id, $time );
 }
 
 sub watch_signal

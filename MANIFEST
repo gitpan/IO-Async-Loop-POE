@@ -18,3 +18,4 @@ t/12share-timer.t
 t/13share-signal.t
 t/15share-child.t
 t/99pod.t
+META.json

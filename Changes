@@ -1,5 +1,8 @@
 Revision history for IO-Async-Loop-POE
 
+0.05    CHANGES:
+         * Implement the IO::Async 0.49 Loop API - watch_time, unwatch_time
+
 0.04    BUGFIXES:
          * Fix timer fail bug on POE 1.299 - rt65706
 
